@@ -1,8 +1,111 @@
-# Technical Specification - Social Pulse
+# Technical Specification - Social Pulse (Current)
 
 **Project:** social-pulse  
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Last Updated:** 2025-11-23
+
+## Project Overview
+Social Pulse is a reputation monitoring and engagement automation platform.
+
+It collects public mentions, performs LLM-powered field-level and actionable analysis, and enables teams to respond at scale and run targeted campaigns. Core use cases include:
+- Monitoring: track brand/entity mentions and sentiment across the public web
+- Analysis: extract topics, categories, key insights, confidence, and ratings
+- Automated responses: AI-drafted replies with workflow status and assignments
+- Campaign generation: group patterns (e.g., repeated ad-quality issues) into coordinated outreach
+
+## 0. Current Project State (Summary)
+- Data source: Google Search via SerpAPI (collector: `GoogleSearchCollector`).
+- Analyzer: Google Gemini (via `google-generativeai`), field-level sentiment.
+- Execution: CLI pipeline in `src/main.py` with flags `--collect`, `--analyze`, `--report`, `--all`.
+- Outputs: `outputs/items.json`, `outputs/analyzed.json`, `outputs/report.md`.
+- Environment: `.env` with `SERPAPI_KEY` and `GOOGLE_API_KEY`.
+- Not implemented (currently): Reddit/LinkedIn collectors, standalone aggregator module, React UI.
+
+## Architecture (Action-Enabled)
+
+Data Sources → Collectors → Analyzer → Aggregator → Dashboard UI  
+                                               ↓  
+                                         Action Agent  
+                                               ↓  
+                                     [Reddit Responder]  
+                                     [Campaign Generator]  
+                                     [Email Outreach]
+
+Notes:
+- Current code includes: Google Search collector, Gemini analyzer, simple aggregation/reporting.
+- Action surfaces are modeled (AnalyzedItem.actionable, response fields, Campaign model) for next-step integrations.
+
+## 1. Architecture & Flow (Current)
+- Entry point: `python -m src.main`
+- Steps
+  - `--collect`: Uses `GoogleSearchCollector` to query SerpAPI for keyword-driven web results and normalizes into `RawItem`
+  - `--analyze`: Uses `SentimentAnalyzer` (Gemini) to produce `AnalyzedItem` with field-level sentiments
+  - `--report`: Computes simple counts and writes a Markdown summary to `outputs/report.md`
+  - `--all`: Runs collect → analyze → report end-to-end
+- Config: `src/utils/config.py` loads `.env` for `SERPAPI_KEY`, `GOOGLE_API_KEY`
+- Logging: `src/utils/logger.py`
+
+### 1.2 Components (Current + Planned)
+- Collectors
+  - Google Search (SerpAPI) with date filtering (days_back) and deduplication
+  - Planned: Reddit (PRAW), LinkedIn (public scraping)
+- Analyzer
+  - Google Gemini 2.5 Flash, JSON parsing + Pydantic validation, retry logic
+  - `AnalysisResult` schema enforces fields/types before converting to domain `AnalyzedItem`
+  - Two-pass `_analyze_single` (2 attempts; second with explicit schema reminder)
+  - Outputs enhanced insights: sentiment, score, rating, topics, category, key_insight, summary, actionable
+- Aggregator
+  - Current: basic counts and Markdown report generation
+  - Planned: `AggregatedStats` with trends and hot-topics
+- Action Agent (planned)
+  - Owns response workflows: response_draft, response_status, assigned_to
+  - Drives downstream responders and campaign creation
+- Reddit Responder (planned)
+  - Posts AI-reviewed responses to Reddit threads when approved
+- Campaign Generator (planned)
+  - Groups patterns into campaigns (theme, audience, message, channels)
+- Dashboard UI (planned)
+  - Executive dashboard + detailed analysis views
+
+## 1.1 Differences from Original Design
+- LLM provider is Google Gemini (not Anthropic). Keys required: `GOOGLE_API_KEY`.
+- Data source is Google Search via SerpAPI (not Reddit/LinkedIn yet). Key required: `SERPAPI_KEY`.
+- Aggregation layer is minimal (counts and simple breakdown in report) rather than a dedicated aggregator module.
+- UI is not implemented; insights are delivered as Markdown in `outputs/report.md`.
+
+Note on analyzer reliability (v1.1.0):
+- Introduced a Pydantic validation layer (`AnalysisResult`) to strictly validate LLM JSON.
+- Added retry inside `_analyze_single`: two attempts; the second includes a schema reminder.
+- Maintains Gemini-first integration; prepares optional `pydantic-ai` Agent wiring without API changes.
+
+## 2. Data Models (Current Summary)
+
+Defined in `src/analyzers/models.py` (Pydantic):
+- RawItem: normalized input from collectors (id, platform, entity_mentioned, text, author, timestamp, url)
+- AnalyzedItem: enhanced analysis output with legacy compatibility
+  - Legacy: `overall_sentiment`, `field_sentiments`, `raw_text`
+  - New: `sentiment`, `sentiment_score`, `rating`, `topics`, `category`, `key_insight`, `summary`, `confidence`, `actionable`, `response_status`, `response_draft`, `assigned_to`
+- AggregatedStats: totals, date_range, sentiment_breakdown, average scores, trends, hot_topics, response_stats
+- Campaign: id, name, created_at, theme, target_audience, message, channels, related_items, status
+
+Serialization: use `model_dump(mode="json")` for writing outputs.
+
+## 3. User Flows
+
+- Flow 1: Monitoring
+  - Collector finds mentions → Analyzer processes → Dashboard/Report shows stats
+- Flow 2: Response
+  - User identifies negative mention → Clicks "Reply" → AI drafts response (`AnalyzedItem.response_draft`) → User approves → Posted via Reddit Responder → Status updates to `replied`
+- Flow 3: Campaign Creation
+  - Aggregator detects pattern (e.g., multiple ad_quality complaints) → Action Agent suggests campaign → User creates `Campaign` with theme/message/channels → Track execution status
+
+## 4. API Endpoints (Planned)
+
+- GET `/api/stats` — Dashboard statistics (AggregatedStats)
+- GET `/api/mentions` — Filtered list of mentions (AnalyzedItem subset)
+- GET `/api/mentions/{id}` — Single mention detail
+- POST `/api/respond/{id}` — Generate/post response draft and/or publish
+- POST `/api/campaigns` — Create campaign from mentions
 
 │ │ ├── themes.py # Theme extraction
 │ │ └── trends.py # Time-based analysis

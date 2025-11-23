@@ -50,7 +50,7 @@ def analyze_sentiment(items: List[RawItem], config: dict, limit: int = 15) -> Li
     """Analyze sentiment of collected items"""
     logger.info(f"🧠 Starting sentiment analysis on {len(items)} items...")
     
-    analyzer = SentimentAnalyzer(api_key=config['anthropic']['api_key'])
+    analyzer = SentimentAnalyzer()
     analyzed_items: List[AnalyzedItem] = []
     
     # Limit to avoid excessive API costs

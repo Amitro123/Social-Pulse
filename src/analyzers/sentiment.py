@@ -47,7 +47,41 @@ class SentimentAnalyzer:
         
         entity = item.entity_mentioned[0]
         prompt = self._build_prompt(entity, item.text)
+
+        max_retries = 3
+        last_error = None
         
+        for attempt in range(max_retries):
+            try:
+                response = self.model.generate_content(prompt)
+                
+                if not response.text:
+                    raise Exception("Empty response from Gemini")
+                
+                response_text = response.text
+                result = self._parse_response(response_text)
+                
+                field_sentiments = [
+                    FieldSentiment(**fs) for fs in result["field_sentiments"]
+                ]
+                
+                return AnalyzedItem(
+                    item_id=item.id,
+                    entity=entity,
+                    overall_sentiment=result["overall_sentiment"],
+                    field_sentiments=field_sentiments,
+                    timestamp=item.timestamp,
+                    platform=item.platform,
+                    raw_text=item.text
+                )
+                
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    continue
+                else:
+                    raise Exception(f"Failed to analyze sentiment after {max_retries} attempts: {str(last_error)}")
+                
         try:
             response = self.model.generate_content(prompt)
             

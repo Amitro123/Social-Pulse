@@ -1,23 +1,141 @@
-# Social Pulse - Agent Architecture & Planning
+# Agent Architecture (Action-Enabled)
 
-**Project Name:** social-pulse  
-**Purpose:** Mini Social Listening Agent for Taboola Take-Home Assignment  
-**Target:** AI Implementation Engineer Role
+**Project:** social-pulse  
+**Purpose:** Multi-agent reputation monitoring and engagement platform
 
 ---
 
-## 🎯 Project Goal
+## 1. Agent Architecture Overview
 
+- Multi-agent system for brand reputation monitoring and engagement automation
+- Agents collaborate in a pipeline and act loop:
+  - Collection → Analysis → Aggregation → Action
+- LLMs are used for deep understanding and drafting; deterministic logic handles orchestration, filtering, and status transitions
 
-## 🏗️ System Architecture
+High-level flow:
 
-### High-Level Flow
-┌─────────────┐ ┌───────────┐ ┌──────────┐ ┌────────────┐ ┌─────┐
-│ Data Sources│ -> │Collectors │ -> │ Analyzer │ -> │ Aggregator │ -> │ UI │
-│ Reddit/LI │ │ (PRAW) │ │ (LLM) │ │ (Stats) │ │React│
-└─────────────┘ └───────────┘ └──────────┘ └────────────┘ └─────┘
+Collection → Analysis → Aggregation → Dashboard  
+                                   ↓  
+                              Action Agent  
+                                   ↓  
+                        [Reddit Responder] · [Campaign Generator] · [Email Outreach]
 
-### Component Breakdown
+---
+
+## 2. Agent Definitions
+
+### CollectorAgent
+- **Purpose:** Fetch mentions from public sources and normalize them
+- **Tools:** Google Search API (SerpAPI), date filtering (`days_back`), deduplication by URL
+- **Input:** Keywords, platforms, time range
+- **Output:** `RawItem` objects
+- **Implementation:** `src/collectors/google_search.py` (current)
+
+### AnalyzerAgent (LLM-powered)
+- **Purpose:** Deep analysis of mentions using LLM
+- **LLM Tasks:**
+  - Sentiment analysis (positive/neutral/negative + score)
+  - Rating extraction (1–5 stars if mentioned)
+  - Topic extraction (pricing, support, ad_quality, etc.)
+  - Category classification (complaint/review/question/praise/feature_request)
+  - Key insight generation (one sentence)
+  - Professional summary (10–15 words)
+  - Draft response generation (if actionable)
+- **Input:** `RawItem`
+- **Output:** `AnalyzedItem`
+- **Implementation:** `src/analyzers/sentiment.py` (current, Gemini-based)
+  - Planned dedicated module: `src/analyzers/llm_analyzer.py`
+
+### AggregatorAgent
+- **Purpose:** Calculate statistics and identify trends
+- **Tasks:**
+  - Sentiment breakdown and averages
+  - Topic frequency analysis
+  - Trend detection over time
+  - Identify action-required items
+  - Track response metrics
+- **Input:** `List[AnalyzedItem]`
+- **Output:** `AggregatedStats` + filtered items
+- **Implementation:** Embedded in `src/main.py` report step (current)  
+  Planned dedicated module: `src/aggregators/stats_aggregator.py`
+
+### ActionAgent (multi-purpose)
+- **Purpose:** Handle user engagement and campaign generation
+- **Sub-agents:**
+  - RedditResponderAgent: Generate and post replies to Reddit (planned)
+  - CampaignGeneratorAgent: Suggest campaigns from patterns (planned)
+  - EmailOutreachAgent: Send personalized emails (planned)
+- **Input:** `AnalyzedItem` or `List[AnalyzedItem]`
+- **Output:** Posted response, `Campaign` object, or outreach message
+- **Implementation:** Planned: `src/agents/action_agent.py`
+
+---
+
+## 3. Agent Communication Flow
+
+- **Pipeline mode (automated):**
+  - CollectorAgent → AnalyzerAgent → AggregatorAgent → Dashboard/Report
+- **Action mode (user-triggered):**
+  - User selection → ActionAgent → [Reddit/Campaign/Email] → Update item status (`response_status`)
+
+State transitions (examples):
+- `pending` → `replied` (after successful post)
+- `pending` → `in_campaign` (added to a campaign)
+- `pending` → `ignored` (explicitly dismissed)
+
+---
+
+## 4. LLM Integration Details
+
+- **Model:** Google Gemini 2.5 Flash (current)
+- **Provider SDK:** `google-generativeai`
+- **Prompting:** Concise instructions; enforce JSON; include few-shot as needed
+- **Response format:** Structured JSON parsed and validated into Pydantic models
+- **Error handling:** Retries with small backoff, default fallbacks for missing fields
+- **Prompt templates:** Planned folder `src/prompts/` (not yet implemented)
+
+---
+
+### 4.1 Structured Output Validation (AnalysisResult)
+
+- Uses a dedicated Pydantic model `AnalysisResult` in `src/analyzers/llm_analyzer.py` to validate LLM outputs.
+- Fields validated include: `sentiment`, `sentiment_score (-1..1)`, `rating (1..5|None)`, `topics (List[str])`, `category`, `key_insight`, `summary`, `confidence (0..1)`, `actionable`, `response_draft`.
+- Guarantees correct types/required fields before converting to domain `AnalyzedItem`.
+
+### 4.2 Retry Logic in `_analyze_single`
+
+- Two attempts per item:
+  - Attempt 1: base prompt.
+  - Attempt 2: same prompt plus explicit schema reminder to return compact JSON matching `AnalysisResult` fields.
+- If JSON parsing or schema validation fails after 2 tries, a controlled exception triggers a safe fallback analysis (rule-based) to preserve pipeline continuity.
+
+### 4.3 Provider Compatibility and Future Agent Wiring
+
+- Current integration remains Gemini-first via `google-generativeai` for continuity and cost-effectiveness.
+- The validation layer prepares the codebase for optional `pydantic-ai` Agent wiring (OpenAI or Anthropic providers) without changing the public API.
+- Migration path: introduce a `pydantic-ai` Agent with `AnalysisResult` as the `result_type`, attempt Agent first, then fall back to the existing Gemini flow on failure.
+
+## 5. Data Models (Reference)
+
+Defined in `src/analyzers/models.py`:
+- `RawItem` — normalized collector output
+- `AnalyzedItem` — enhanced analysis + action fields (`sentiment_score`, `rating`, `topics`, `summary`, `response_draft`, `response_status`, `assigned_to`, etc.) with legacy compatibility
+- `AggregatedStats` — totals, averages, trends, hot topics, response stats
+- `Campaign` — campaign definition (theme, audience, message, channels, related items, status)
+
+---
+
+## 6. Future Agent Enhancements
+
+- LinkedIn engagement agent
+- Twitter/X monitoring and response
+- Automated sentiment alerting
+- Competitor analysis agent
+- Multi-language support
+
+Notes:
+- LLMs power semantic analysis and drafting
+- Rule-based logic governs routing, thresholds, status transitions, scheduling
 
 #### 1. **Data Collection Layer** (`src/collectors/`)
 
@@ -185,7 +303,7 @@ Instead of just "positive/negative", we analyze specific aspects:
 ## 🔑 Critical Technical Decisions
 
 ### 1. **LLM Provider**
-**Choice:** Anthropic Claude 3.5 Sonnet
+**Choice:** Google Gemini 2.5 Flash
 
 **Reasoning:**
 - Superior structured output support
@@ -193,18 +311,15 @@ Instead of just "positive/negative", we analyze specific aspects:
 - Reliable JSON schema adherence
 - Cost-effective for this scale
 
-**Alternative:** OpenAI GPT-4 (if Claude unavailable)
+**Alternative:** Anthropic Claude 3.5 Sonnet or OpenAI GPT-4 (if Gemini unavailable)
 
 ### 2. **Data Sources**
-**Primary:** Reddit via PRAW
-- Easy API access
-- Rich discussion data
-- Good search capabilities
+**Primary (current):** Google Search via SerpAPI
+- Pragmatic, broad coverage of public web content
+- Easy API with query control
 
-**Bonus:** LinkedIn Scraping
-- Professional context for Taboola/Realize
-- Higher quality discussions
-- Scraping via BeautifulSoup + requests
+**Planned:** Reddit via PRAW, LinkedIn scraping (public posts)
+- Higher-quality discussions; additional engineering effort
 
 ### 3. **Sentiment Fields**
 Focus on aspects relevant to ad tech industry:
@@ -239,13 +354,13 @@ Focus on aspects relevant to ad tech industry:
 ## 📦 Deliverables Checklist
 
 ### Code
-- [ ] Reddit collector with PRAW
-- [ ] LinkedIn scraper (or alternative bonus source)
-- [ ] LLM sentiment analyzer with JSON schema
-- [ ] Field-level analysis logic
-- [ ] Aggregation engine (stats + themes)
-- [ ] Simple React UI with charts
-- [ ] CLI entry point (`python -m social_pulse`)
+- [ ] Reddit collector with PRAW (planned)
+- [ ] LinkedIn scraper (planned)
+- [x] LLM sentiment analyzer (Gemini) with JSON parsing/validation
+- [x] Field-level analysis logic
+- [ ] Aggregation engine (stats + themes) — basic stats embedded in report step
+- [ ] Simple React UI with charts (planned)
+- [x] CLI entry point (`python -m src.main`)
 
 ### Documentation
 - [ ] README.md with setup instructions
