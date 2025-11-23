@@ -2,10 +2,10 @@
 import os
 import json
 import time
-from typing import List, Optional
+from typing import List, Optional, Literal
 from dotenv import load_dotenv
 from pathlib import Path
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, HttpUrl
 import google.generativeai as genai
 from src.analyzers.models import RawItem, AnalyzedItem
 from datetime import datetime
@@ -15,11 +15,11 @@ load_dotenv(dotenv_path=project_root / ".env")
 
 
 class AnalysisResult(BaseModel):
-    sentiment: str = Field(..., description="positive, neutral, or negative")
+    sentiment: Literal["positive", "neutral", "negative"] = Field(..., description="positive, neutral, or negative")
     sentiment_score: float = Field(..., ge=-1, le=1, description="Score from -1 to 1")
     rating: Optional[int] = Field(None, ge=1, le=5, description="Star rating if mentioned")
     topics: List[str] = Field(default_factory=list, description="List of topics mentioned")
-    category: str = Field(..., description="complaint, review, question, praise, or feature_request")
+    category: Literal["complaint", "review", "question", "praise", "feature_request"] = Field(..., description="Category of the content")
     key_insight: str = Field(..., max_length=200, description="One sentence core message")
     summary: str = Field(..., max_length=100, description="Professional summary for dashboard")
     confidence: float = Field(..., ge=0, le=1, description="Confidence in analysis")
@@ -256,7 +256,7 @@ Example output:
         return AnalyzedItem(
             id=item.id,
             text=item.text,
-            url=str(item.url),  # ⬅️ Convert to string
+            url=item.url,
             timestamp=item.timestamp,
             platform=item.platform,
             entity_mentioned=item.entity_mentioned,

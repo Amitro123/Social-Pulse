@@ -52,7 +52,7 @@ def test_db_endpoints_and_mentions_fastpath(monkeypatch, client):
 
     # Seed DB directly and ensure mentions reads from DB fast path
     seed_db_with_analyzed("Taboola")
-    r2 = client.get("/api/mentions?entity=Taboola&days=30&limit=10")
+    r2 = client.get("/api/mentions?entity=Taboola&days=30&limit=10&use_db=true")
     assert r2.status_code == 200
     items = r2.json()
     assert isinstance(items, list) and len(items) >= 1

@@ -10,6 +10,7 @@ from api.database import db
 from src.collectors.google_search import GoogleSearchCollector
 from src.analyzers.llm_analyzer import LLMAnalyzer
 from src.aggregators.stats_aggregator import StatsAggregator
+from fastapi.concurrency import run_in_threadpool
 import uuid
 
 app = FastAPI(title="Social Pulse API", version=config.API_VERSION)
@@ -34,11 +35,13 @@ async def collect(req: CollectRequest, background_tasks: BackgroundTasks):
     """Trigger collection + analysis + aggregation. Returns results synchronously for demo, with optional background."""
     async def job(entity: str, days: int, limit: int):
         collector = GoogleSearchCollector(days_back=days)
-        items = collector.collect(keywords=[entity], limit=limit)
+        items = await run_in_threadpool(collector.collect, keywords=[entity], limit=limit)
+
         analyzer = LLMAnalyzer()
-        analyzed = analyzer.analyze(items, delay=0.0)
+        analyzed = await run_in_threadpool(analyzer.analyze, items, delay=0.0)
+
         aggregator = StatsAggregator()
-        stats = aggregator.aggregate(analyzed, days_back=days)
+        stats = await run_in_threadpool(aggregator.aggregate, analyzed, days_back=days)
         return items, analyzed, stats
 
     job_id = str(uuid.uuid4())
@@ -47,7 +50,7 @@ async def collect(req: CollectRequest, background_tasks: BackgroundTasks):
     cache_key = f"stats_{req.entity}_{req.days}_{req.limit}"
     cache_manager.set(cache_key, stats)
     # Persist analyzed items to the database
-    db.save_items(analyzed, req.entity)
+    await run_in_threadpool(db.save_items, analyzed, req.entity)
 
     return CollectResponse(status="completed", total_mentions=len(items), analyzed_count=len(analyzed), job_id=job_id)
 

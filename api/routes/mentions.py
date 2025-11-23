@@ -6,6 +6,7 @@ from api.dependencies import cache, rate_limit
 from api.database import db
 from src.collectors.google_search import GoogleSearchCollector
 from src.analyzers.llm_analyzer import LLMAnalyzer
+from fastapi.concurrency import run_in_threadpool
 
 router = APIRouter(prefix="/api", tags=["mentions"])
 
@@ -55,10 +56,10 @@ async def list_mentions(
         return response_items
 
     collector = GoogleSearchCollector(days_back=days)
-    items = collector.collect(keywords=[entity], limit=limit)
+    items = await run_in_threadpool(collector.collect, keywords=[entity], limit=limit)
 
     analyzer = LLMAnalyzer()
-    analyzed = analyzer.analyze(items, delay=0.0)
+    analyzed = await run_in_threadpool(analyzer.analyze, items, delay=0.0)
 
     # Filter
     def ok(a):
@@ -71,7 +72,7 @@ async def list_mentions(
     filtered = [a for a in analyzed if ok(a)]
 
     # Persist to DB
-    db.save_items(filtered, entity)
+    await run_in_threadpool(db.save_items, filtered, entity)
 
     # Convert to API response model explicitly to ensure primitives (str URL)
     def to_api(a):
@@ -132,15 +133,15 @@ async def get_mention(item_id: str, days: int = config.DEFAULT_DAYS, entity: str
             )
 
     collector = GoogleSearchCollector(days_back=days)
-    items = collector.collect(keywords=[entity], limit=100)
+    items = await run_in_threadpool(collector.collect, keywords=[entity], limit=100)
 
     analyzer = LLMAnalyzer()
-    analyzed = analyzer.analyze(items, delay=0.0)
+    analyzed = await run_in_threadpool(analyzer.analyze, items, delay=0.0)
 
     for a in analyzed:
         if a.id == item_id:
             # Save to DB for persistence
-            db.save_items([a], entity)
+            await run_in_threadpool(db.save_items, [a], entity)
             return AnalyzedItemModel(
                 id=a.id,
                 text=a.text,

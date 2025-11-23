@@ -163,10 +163,10 @@ Raw data from any source before sentiment analysis.
 Normalized format for all platforms.
 """
 id: str = Field(..., description="Unique identifier: platform_id")
-platform: Literal["reddit", "linkedin", "twitter", "hackernews"] = Field(
+platform: Literal["google_search", "reddit", "linkedin", "twitter", "hackernews"] = Field(
 ..., description="Source platform"
 )
-entity_mentioned: List[Literal["Taboola", "Realize"]] = Field(
+entity_mentioned: List[str] = Field(
 ..., description="Which entities are mentioned"
 )
 text: str = Field(..., description="Full text content")

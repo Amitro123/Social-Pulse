@@ -10,6 +10,7 @@ from src.analyzers.llm_analyzer import LLMAnalyzer
 from src.aggregators.stats_aggregator import StatsAggregator
 from src.analyzers.models import AnalyzedItem
 from datetime import datetime
+from fastapi.concurrency import run_in_threadpool
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
@@ -58,16 +59,16 @@ async def get_stats(entity: str = config.DEFAULT_ENTITY, days: int = config.DEFA
 
     async def compute_stats():
         collector = GoogleSearchCollector(days_back=days)
-        items = collector.collect(keywords=[entity], limit=limit)
+        items = await run_in_threadpool(collector.collect, keywords=[entity], limit=limit)
 
         analyzer = LLMAnalyzer()
-        analyzed = analyzer.analyze(items, delay=0.0)
+        analyzed = await run_in_threadpool(analyzer.analyze, items, delay=0.0)
 
         # Persist analyzed items to DB
-        db.save_items(analyzed, entity)
+        await run_in_threadpool(db.save_items, analyzed, entity)
 
         aggregator = StatsAggregator()
-        return aggregator.aggregate(analyzed, days_back=days)
+        return await run_in_threadpool(aggregator.aggregate, analyzed, days_back=days)
 
     result = await cache_manager.get_or_compute(cache_key, compute_stats, force_refresh=force_refresh)
     return result["data"]
