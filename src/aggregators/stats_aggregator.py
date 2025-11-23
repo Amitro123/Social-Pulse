@@ -101,6 +101,8 @@ class StatsAggregator:
         # Group by date
         items_by_date = {}
         for item in items:
+            if not item.timestamp:
+                continue
             date_key = item.timestamp.date().isoformat()
             if date_key not in items_by_date:
                 items_by_date[date_key] = []

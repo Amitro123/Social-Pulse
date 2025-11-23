@@ -17,7 +17,7 @@ class RawItem(BaseModel):
     platform: Literal["google_search", "linkedin", "twitter", "hackernews"] = Field(
         ..., description="Source platform"
     )
-    entity_mentioned: List[Literal["Taboola", "Realize"]] = Field(
+    entity_mentioned: List[str] = Field(
         ..., description="Which entities are mentioned"
     )
     text: str = Field(..., description="Full text content")

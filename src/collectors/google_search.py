@@ -71,6 +71,12 @@ class GoogleSearchCollector(BaseCollector):
                         if 'realize' in text_lower:
                             entities.append('Realize')
                         
+                        # Fallback: check if any keyword is in text
+                        if not entities:
+                            for k in keywords:
+                                if k.lower() in text_lower and k not in entities:
+                                    entities.append(k)
+
                         if not entities:
                             continue
                         
