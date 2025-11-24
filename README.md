@@ -1,8 +1,6 @@
 # Social Pulse (SentimentPulse)
 
-Real-time dashboard for collecting, analyzing, and responding to public sentiment using AI and manual workflows.
-
-This prototype implements a full loop: collect public mentions, analyze with an LLM, aggregate stats, and take actions from the dashboard while persisting campaigns and replies in a SQLite DB. It currently supports the Taboola and Realize entities.
+Real-time dashboard to collect, analyze, and respond to public sentiment about Taboola and Realize using AI and manual workflows. It features a complete pipeline: data collection, LLM-based analysis, statistics aggregation, and dashboard-driven actions with persistent campaigns and replies in SQLite.
 
 ## Project Overview
 - Dynamic statistics are computed live from backend mentions.
@@ -10,7 +8,7 @@ This prototype implements a full loop: collect public mentions, analyze with an 
 - Reply flows support AI-simulated and manual replies; replies are stored and associated with mentions.
 - Both replies and campaigns survive backend restarts (SQLite persistence).
 - Entity filtering supports Taboola and Realize.
-- Timestamps displayed in the UI are the true backend timestamps.
+- Accurate backend timestamps shown in UI.
 
 ## Architecture Diagram
 
@@ -316,32 +314,6 @@ Tests cover:
 - Campaign creation and persistence
 - Entity filtering validation
 - Persistence across backend reloads
-
-## Example API Response
-
-```json
-{
-  "id": "google_592436940456322799",
-  "text": "Taboola Reviews | Glassdoor...",
-  "url": "https://glassdoor.co.in/Reviews/Taboola-Reviews-E386708.htm",
-  "timestamp": "2025-11-24T13:30:16.946939",
-  "platform": "google_search",
-  "entity_mentioned": ["Taboola"],
-  "author": "glassdoor.co.in",
-  "sentiment": "positive",
-  "sentiment_score": 0.85,
-  "rating": 4,
-  "topics": ["employee_experience", "work_life_balance"],
-  "category": "review",
-  "key_insight": "Taboola employees highly recommend working there...",
-  "summary": "Positive employee feedback highlights...",
-  "confidence": 0.98,
-  "actionable": false,
-  "response_status": "sent",
-  "response_draft": null,
-  "assigned_to": null
-}
-```
 
 ## Known Limitations and Future Work
 - Limited live Google Search data for "Realize"; ingestion via CSV as fallback.
