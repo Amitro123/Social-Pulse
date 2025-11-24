@@ -1,6 +1,6 @@
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -30,7 +30,7 @@ def _seed_item(entity: str, *, id_: str, text: str, platform: str = "google_sear
     item.actionable = actionable
     item.response_status = response_status
     item.response_draft = None
-    item.timestamp = datetime.utcnow()
+    item.timestamp = datetime.now(timezone.utc)
     db.save_items([item], entity)
 
 

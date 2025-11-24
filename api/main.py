@@ -101,7 +101,7 @@ async def clear_database(entity: str | None = None):
 @app.post("/api/seed/realize")
 async def seed_realize():
     """Seed a single 'Realize' mention for end-to-end validation."""
-    from datetime import datetime
+    from datetime import datetime, timezone
     item = type("AI", (), {})()
     item.id = f"realize_seed"
     item.text = "Realize platform onboarding experience was smooth and helpful."
@@ -119,6 +119,6 @@ async def seed_realize():
     item.actionable = False
     item.response_status = "ignored"
     item.response_draft = None
-    item.timestamp = datetime.utcnow()
+    item.timestamp = datetime.now(timezone.utc)
     await run_in_threadpool(db.save_items, [item], "Realize")
     return {"status": "ok", "id": item.id}
