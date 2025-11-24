@@ -3,12 +3,13 @@ from typing import List, Optional
 from api.models.responses import AnalyzedItemModel
 from api import config
 from api.dependencies import cache, rate_limit
+from api.cache import cache_manager
 from api.database import db
 from src.collectors.google_search import GoogleSearchCollector
 from src.analyzers.llm_analyzer import LLMAnalyzer
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api", tags=["mentions"])
 
@@ -176,19 +177,21 @@ class ReplyIn(BaseModel):
 @router.post("/mentions/{item_id}/reply")
 async def create_reply(item_id: str, payload: ReplyIn):
     await rate_limit()
-    rid = f"r-{int(datetime.utcnow().timestamp()*1000)}"
+    rid = f"r-{int(datetime.now(timezone.utc).timestamp()*1000)}"
     reply = {
         "id": rid,
         "mention_id": item_id,
         "by": payload.by,
         "content": payload.content,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "resolved": True,
     }
     await run_in_threadpool(db.save_reply, reply)
     await run_in_threadpool(db.update_mention_status, item_id, response_status="sent")
     # Invalidate mentions cache entries (entity-agnostic)
     cache.clear_where(lambda k: isinstance(k, tuple) and len(k) > 0 and k[0] == "mentions")
+    # Invalidate stats cache entries (using global cache_manager)
+    cache_manager.clear("stats_")
     return {"status": "ok", "reply": reply}
 
 class StatusIn(BaseModel):
@@ -200,6 +203,8 @@ async def update_status(item_id: str, payload: StatusIn):
     await rate_limit()
     await run_in_threadpool(db.update_mention_status, item_id, response_status=payload.response_status, actionable=payload.actionable)
     cache.clear_where(lambda k: isinstance(k, tuple) and len(k) > 0 and k[0] == "mentions")
+    # Invalidate stats cache entries (using global cache_manager)
+    cache_manager.clear("stats_")
     return {"status": "ok"}
 
 @router.get("/mentions/{item_id}/replies")

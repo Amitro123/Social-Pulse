@@ -1,6 +1,6 @@
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any, Iterable
 from contextlib import contextmanager
 
@@ -208,7 +208,7 @@ class Database:
                 (
                     campaign.get("id"),
                     campaign.get("topic"),
-                    campaign.get("created_at") or datetime.utcnow().isoformat(),
+                    campaign.get("created_at") or datetime.now(timezone.utc).isoformat(),
                     campaign.get("summary"),
                     campaign.get("sentiment"),
                     campaign.get("trigger_count"),
@@ -239,7 +239,7 @@ class Database:
                     reply.get("mention_id"),
                     reply.get("by"),
                     reply.get("content"),
-                    reply.get("created_at") or datetime.utcnow().isoformat(),
+                    reply.get("created_at") or datetime.now(timezone.utc).isoformat(),
                     1 if reply.get("resolved", True) else 0,
                 ),
             )

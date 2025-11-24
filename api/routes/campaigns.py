@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from api.database import db
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api", tags=["campaigns"]) 
 
@@ -39,14 +39,14 @@ async def list_campaigns(limit: int = 20):
 
 @router.post("/campaigns", response_model=CampaignOut)
 async def create_campaign(c: CampaignIn):
-    cid = c.id or f"c-{int(datetime.utcnow().timestamp()*1000)}"
+    cid = c.id or f"c-{int(datetime.now(timezone.utc).timestamp()*1000)}"
     payload = {
         "id": cid,
         "topic": c.topic,
         "summary": c.summary,
         "sentiment": c.sentiment,
         "trigger_count": c.trigger_count,
-        "created_at": c.created_at or datetime.utcnow().isoformat(),
+        "created_at": c.created_at or datetime.now(timezone.utc).isoformat(),
     }
     db.save_campaign(payload)
     return payload
