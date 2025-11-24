@@ -52,19 +52,19 @@ This prototype implements a full loop: collect public mentions, analyze with an 
 
 ```
 Latest Mentions
-┌────────────────────────────────────────────────────────────────────────────┐
-│ Source  Entity   Sentiment  Author   Date               Actions            │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Reddit  Taboola  Negative   u/alex   2025-11-24 10:15  [Reply] [Campaign] │
+┌──────────────────────────────────────────────────────────────────────────── ┐
+│ Source  Entity   Sentiment  Author   Date               Actions             │
+├──────────────────────────────────────────────────────────────────────────── ┤
+│ Reddit  Taboola  Negative   u/alex   2025-11-24 10:15  [Reply] [Campaign]   │
 │  “Taboola widgets slow my page down. Any settings to tune this?”            │
 │  Topics: performance, user_experience | Insight: Perf complaints            │
 │  Summary: Performance issues reported on widget load.                       │
-├────────────────────────────────────────────────────────────────────────────┤
-│ Web     Realize  Positive   blog.com 2025-11-23 17:12  [Reply] [Handled]  │
+├──────────────────────────────────────────────────────────────────────────── ┤
+│ Web     Realize  Positive   blog.com 2025-11-23 17:12  [Reply] [Handled]    │
 │  “Realize onboarding was smooth; docs were clear.”                          │
 │  Topics: onboarding | Insight: Positive onboarding feedback                 │
 │  Summary: Smooth onboarding experience.                                     │
-└────────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────── ┘
 
 Action Panel
 - Complaints | Questions | Reviews | Praises
@@ -211,6 +211,145 @@ Expected output ends with a single test PASS, e.g.:
 ```
 
 This response shows a typical mention item including fields such as `entity_mentioned` (an array of entities mentioned in the text), sentiment, timestamps, and `response_status` reflecting the current reply state.
+
+Social Pulse (SentimentPulse)
+Real-time dashboard for collecting, analyzing, and responding to public sentiment about Taboola and Realize using AI and manual workflows.
+
+## Introduction
+Social Pulse is a prototype AI agent that tracks public chatter around the brands Taboola and Realize, analyzing sentiment at a granular level and enabling real-time interaction via a dashboard.
+
+## System Requirements
+- Python 3.10 or above
+- Node.js 16+ (for frontend React app)
+- Poetry or pip (for Python dependency management)
+- Environment variables setup for API keys
+
+## Setup Instructions
+
+### Backend (FastAPI)
+Create a `.env` file at the project root containing:
+
+```
+SERPAPI_KEY=your_serpapi_key
+GOOGLE_API_KEY=your_google_api_key
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the backend server:
+
+```bash
+uvicorn api.main:app --reload --port 8000
+```
+
+### Frontend (React)
+Navigate to `src/ui/frontend`
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the frontend development server:
+
+```bash
+npm start
+```
+
+## Architecture Overview
+
+```
+Collector (Search) → Analyzer (LLM) → Aggregator (Stats) → Dashboard (UI)
+                                            ↓
+                                      Action Agent (Responder)
+                                      ┌───────────────┐
+                                      │ Reply (AI)    │
+                                      │ Reply (Manual)│
+                                      │ Campaigns     │
+                                      │ Mark Handled  │
+                                      └───────────────┘
+```
+
+Data flows from collection, through analysis and aggregation, to visualization and action workflows.
+
+## Features
+- Live sentiment analysis and statistics updated from backend mentions.
+- Entity filtering supports Taboola and Realize.
+- Campaign creation and tracking persisted in SQLite.
+- Reply workflows support AI-generated and manual replies.
+- Persisted data survives backend restarts.
+- All UI timestamps reflect backend data.
+
+## Sample User Interface Snapshot
+- Latest Mentions list with source, entity, sentiment, and quick actions (Reply, Campaign, Handled).
+
+## API Endpoints Summary
+
+| Method | Endpoint                   | Description                               |
+| ------ | -------------------------- | ----------------------------------------- |
+| GET    | /api/mentions              | List mentions with filters                |
+| GET    | /api/mentions/{id}         | Get mention details                       |
+| POST   | /api/mentions/{id}/reply   | Create a reply and mark mention as sent   |
+| PATCH  | /api/mentions/{id}/status  | Update mention status and actionable flag |
+| GET    | /api/mentions/{id}/replies | List replies for mention                  |
+| GET    | /api/campaigns             | List campaigns                            |
+| POST   | /api/campaigns             | Create a campaign                         |
+| POST   | /api/seed/realize          | Seed a demo Realize mention               |
+
+## Testing Instructions
+To run integration tests:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install pytest
+pytest -q tests/test_integration_e2e.py
+```
+
+Tests cover:
+- DB seeding for Taboola and Realize mentions
+- Reply creation and status updates
+- Campaign creation and persistence
+- Entity filtering validation
+- Persistence across backend reloads
+
+## Example API Response
+
+```json
+{
+  "id": "google_592436940456322799",
+  "text": "Taboola Reviews | Glassdoor...",
+  "url": "https://glassdoor.co.in/Reviews/Taboola-Reviews-E386708.htm",
+  "timestamp": "2025-11-24T13:30:16.946939",
+  "platform": "google_search",
+  "entity_mentioned": ["Taboola"],
+  "author": "glassdoor.co.in",
+  "sentiment": "positive",
+  "sentiment_score": 0.85,
+  "rating": 4,
+  "topics": ["employee_experience", "work_life_balance"],
+  "category": "review",
+  "key_insight": "Taboola employees highly recommend working there...",
+  "summary": "Positive employee feedback highlights...",
+  "confidence": 0.98,
+  "actionable": false,
+  "response_status": "sent",
+  "response_draft": null,
+  "assigned_to": null
+}
+```
+
+## Known Limitations and Future Work
+- Limited live Google Search data for "Realize"; ingestion via CSV as fallback.
+- UI can be extended for deeper filtering and trend analysis.
+- Further prompt tuning to handle sarcasm and complex sentiment.
+
+## License
+MIT License
 
 ## References
 - spec.md — technical specification and data models
