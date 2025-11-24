@@ -5,20 +5,24 @@
 
 ---
 
-## 1. Agent Architecture Overview
+## 1. Agent Architecture Overview (Implemented)
 
-- Multi-agent system for brand reputation monitoring and engagement automation
-- Agents collaborate in a pipeline and act loop:
-  - Collection → Analysis → Aggregation → Action
-- LLMs are used for deep understanding and drafting; deterministic logic handles orchestration, filtering, and status transitions
+- Pipeline for brand reputation monitoring and engagement
+- Agents collaborate as:
+  - Collection → Analysis → Aggregation → Dashboard (UI)
+- LLM (Gemini) for structured analysis and drafting; deterministic logic for orchestration, caching, and persistence
 
 High-level flow:
 
-Collection → Analysis → Aggregation → Dashboard  
-                                   ↓  
-                              Action Agent  
-                                   ↓  
-                        [Reddit Responder] · [Campaign Generator] · [Email Outreach]
+Collector (Search) → Analyzer (LLM) → Aggregator (Stats) → Dashboard (UI)
+                                            ↓
+                                      Action Agent (Responder)
+                                      ┌───────────────┐
+                                      │ Reply (AI)    │
+                                      │ Reply (Manual)│
+                                      │ Campaigns     │
+                                      │ Mark Handled  │
+                                      └───────────────┘
 
 ---
 
@@ -56,30 +60,28 @@ Collection → Analysis → Aggregation → Dashboard
   - Track response metrics
 - **Input:** `List[AnalyzedItem]`
 - **Output:** `AggregatedStats` + filtered items
-- **Implementation:** Embedded in `src/main.py` report step (current)  
-  Planned dedicated module: `src/aggregators/stats_aggregator.py`
+- **Implementation:** Basic in-app stats for UI (planned dedicated module: `src/aggregators/stats_aggregator.py`)
 
-### ActionAgent (multi-purpose)
-- **Purpose:** Handle user engagement and campaign generation
-- **Sub-agents:**
-  - RedditResponderAgent: Generate and post replies to Reddit (planned)
-  - CampaignGeneratorAgent: Suggest campaigns from patterns (planned)
-  - EmailOutreachAgent: Send personalized emails (planned)
-- **Input:** `AnalyzedItem` or `List[AnalyzedItem]`
-- **Output:** Posted response, `Campaign` object, or outreach message
-- **Implementation:** Planned: `src/agents/action_agent.py`
+### ActionAgent (Responder)
+- **Purpose:** Handle engagement via replies and campaign creation
+- **Implemented via API:**
+  - POST `/api/mentions/{id}/reply` (AI/manual) → persists reply, sets `response_status=sent`, invalidates cache
+  - PATCH `/api/mentions/{id}/status` → updates `response_status`/`actionable`, invalidates cache
+  - POST `/api/campaigns` → persists campaign; GET `/api/campaigns` lists
+- **Planned sub-agents:** External posting (Reddit), campaign generation suggestions, email outreach
+- **State:** `response_status`, `actionable`, `response_draft`, `assigned_to`
 
 ---
 
-## 3. Agent Communication Flow
+## 3. Agent Communication Flow (Implemented)
 
-- **Pipeline mode (automated):**
-  - CollectorAgent → AnalyzerAgent → AggregatorAgent → Dashboard/Report
+- **Pipeline mode:**
+  - CollectorAgent → AnalyzerAgent → AggregatorAgent → Dashboard (UI)
 - **Action mode (user-triggered):**
-  - User selection → ActionAgent → [Reddit/Campaign/Email] → Update item status (`response_status`)
+  - User action → ActionAgent (reply/campaign) → Update item status (`response_status`) and persist
 
 State transitions (examples):
-- `pending` → `replied` (after successful post)
+- `pending` → `sent` (after successful reply)
 - `pending` → `in_campaign` (added to a campaign)
 - `pending` → `ignored` (explicitly dismissed)
 
@@ -143,8 +145,9 @@ Notes:
 
 **Components:**
 - `BaseCollector` (abstract): Common interface for all collectors
-- `RedditCollector`: Uses PRAW to search Reddit
-- `LinkedInCollector`: Scrapes public LinkedIn posts (bonus)
+- `GoogleSearchCollector`: SerpAPI-based (implemented)
+- `RedditCollector`: Uses PRAW (planned)
+- `LinkedInCollector`: Scrapes public LinkedIn posts (planned)
 
 **Output Format:**
 {
@@ -274,7 +277,7 @@ Instead of just "positive/negative", we analyze specific aspects:
 
 **Purpose:** Present insights in clear, interactive format
 
-**Technology Choice:** Simple React app with Chart.js
+**Technology Choice:** React + TypeScript (dashboard)
 
 **Key Features:**
 - Sentiment distribution pie chart
@@ -331,9 +334,13 @@ Focus on aspects relevant to ad tech industry:
 - brand_reputation
 
 ### 4. **Testing Strategy**
-- **Unit tests**: Sentiment parser with mocked LLM responses
-- **Integration tests**: Reddit collector with real API
+- **Unit tests**: cache/db utilities, API response shapes
+- **Integration tests**: FastAPI TestClient (see `tests/test_integration_e2e.py`)
 - **Schema validation**: Pydantic model tests
+
+Integration test notes:
+- Uses temporary SQLite DB; seeds Taboola/Realize; exercises replies and campaigns; verifies persistence across reload.
+- Uses `use_db=true` and explicit `entity` to bypass collectors/LLM and avoid cache staleness.
 
 ---
 

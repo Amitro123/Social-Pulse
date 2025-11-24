@@ -14,36 +14,37 @@ It collects public mentions, performs LLM-powered field-level and actionable ana
 - Campaign generation: group patterns (e.g., repeated ad-quality issues) into coordinated outreach
 
 ## 0. Current Project State (Summary)
-- Data source: Google Search via SerpAPI (collector: `GoogleSearchCollector`).
-- Analyzer: Google Gemini (via `google-generativeai`), field-level sentiment.
-- Execution: CLI pipeline in `src/main.py` with flags `--collect`, `--analyze`, `--report`, `--all`.
-- Outputs: `outputs/items.json`, `outputs/analyzed.json`, `outputs/report.md`.
+- Backend: FastAPI app under `api/` with SQLite persistence (`api/database.py`).
+- Frontend: React + TS app under `src/ui/frontend` (dashboard, mentions, Hot Topics, Action Panel).
+- Data source: Google Search via SerpAPI (`src/collectors/google_search.py`).
+- Analyzer: Google Gemini (`src/analyzers/llm_analyzer.py`), structured JSON validated.
+- Entities in-scope: Taboola, Realize.
+- Persistence: Mentions (analyzed_items), Campaigns, Replies tables.
+- Endpoints implemented: mentions list/detail, replies create/list, status update, campaigns list/create, seed Realize.
+- Caching: in-memory TTL cache with invalidation on reply/status mutations.
 - Environment: `.env` with `SERPAPI_KEY` and `GOOGLE_API_KEY`.
-- Not implemented (currently): Reddit/LinkedIn collectors, standalone aggregator module, React UI.
 
 ## Architecture (Action-Enabled)
 
-Data Sources → Collectors → Analyzer → Aggregator → Dashboard UI  
-                                               ↓  
-                                         Action Agent  
-                                               ↓  
-                                     [Reddit Responder]  
-                                     [Campaign Generator]  
-                                     [Email Outreach]
+Collector (Search) → Analyzer (LLM) → Aggregator (Stats) → Dashboard (UI)
+                                            ↓
+                                      Action Agent (Responder)
+                                      ┌───────────────┐
+                                      │ Reply (AI)    │
+                                      │ Reply (Manual)│
+                                      │ Campaigns     │
+                                      │ Mark Handled  │
+                                      └───────────────┘
 
 Notes:
-- Current code includes: Google Search collector, Gemini analyzer, simple aggregation/reporting.
-- Action surfaces are modeled (AnalyzedItem.actionable, response fields, Campaign model) for next-step integrations.
+- Implemented: Google Search collector, Gemini analyzer, basic aggregation in-app, dashboard UI.
+- Action flows implemented via API: replies and campaigns with DB persistence.
 
-## 1. Architecture & Flow (Current)
-- Entry point: `python -m src.main`
-- Steps
-  - `--collect`: Uses `GoogleSearchCollector` to query SerpAPI for keyword-driven web results and normalizes into `RawItem`
-  - `--analyze`: Uses `SentimentAnalyzer` (Gemini) to produce `AnalyzedItem` with field-level sentiments
-  - `--report`: Computes simple counts and writes a Markdown summary to `outputs/report.md`
-  - `--all`: Runs collect → analyze → report end-to-end
-- Config: `src/utils/config.py` loads `.env` for `SERPAPI_KEY`, `GOOGLE_API_KEY`
-- Logging: `src/utils/logger.py`
+## 1. Architecture & Flow (Implemented)
+- Backend service (FastAPI) exposes REST for mentions, replies, campaigns.
+- Collector collects Google Search results; Analyzer processes with Gemini; results saved to DB.
+- Dashboard UI consumes REST, shows statistics, Hot Topics, and supports Reply/Campaign actions.
+- Cache: TTL cache on mentions GET, invalidated on POST reply / PATCH status.
 
 ### 1.2 Components (Current + Planned)
 - Collectors
@@ -55,11 +56,11 @@ Notes:
   - Two-pass `_analyze_single` (2 attempts; second with explicit schema reminder)
   - Outputs enhanced insights: sentiment, score, rating, topics, category, key_insight, summary, actionable
 - Aggregator
-  - Current: basic counts and Markdown report generation
-  - Planned: `AggregatedStats` with trends and hot-topics
+  - Current: basic in-app stats and topic summaries for UI
+  - Planned: dedicated `AggregatedStats` module with trends and hot-topics
 - Action Agent (planned)
-  - Owns response workflows: response_draft, response_status, assigned_to
-  - Drives downstream responders and campaign creation
+  - Current: Reply and Campaign flows via API; fields include `response_status`, `actionable`, `response_draft`
+  - Planned: external posting agents (Reddit/etc.)
 - Reddit Responder (planned)
   - Posts AI-reviewed responses to Reddit threads when approved
 - Campaign Generator (planned)
@@ -70,8 +71,8 @@ Notes:
 ## 1.1 Differences from Original Design
 - LLM provider is Google Gemini (not Anthropic). Keys required: `GOOGLE_API_KEY`.
 - Data source is Google Search via SerpAPI (not Reddit/LinkedIn yet). Key required: `SERPAPI_KEY`.
-- Aggregation layer is minimal (counts and simple breakdown in report) rather than a dedicated aggregator module.
-- UI is not implemented; insights are delivered as Markdown in `outputs/report.md`.
+- Aggregation currently computed in-app for UI; dedicated aggregator remains planned.
+- React UI is implemented; CLI report remains optional for batch runs.
 
 Note on analyzer reliability (v1.1.0):
 - Introduced a Pydantic validation layer (`AnalysisResult`) to strictly validate LLM JSON.
@@ -90,22 +91,26 @@ Defined in `src/analyzers/models.py` (Pydantic):
 
 Serialization: use `model_dump(mode="json")` for writing outputs.
 
-## 3. User Flows
-
+## 3. User Flows (Implemented)
 - Flow 1: Monitoring
-  - Collector finds mentions → Analyzer processes → Dashboard/Report shows stats
+  - Collector finds mentions → Analyzer processes → Dashboard shows stats
 - Flow 2: Response
-  - User identifies negative mention → Clicks "Reply" → AI drafts response (`AnalyzedItem.response_draft`) → User approves → Posted via Reddit Responder → Status updates to `replied`
+  - User clicks "Reply" (AI/manual) → POST `/api/mentions/{id}/reply` → DB saves reply and sets `response_status=sent` → cache invalidated → Dashboard updates
 - Flow 3: Campaign Creation
-  - Aggregator detects pattern (e.g., multiple ad_quality complaints) → Action Agent suggests campaign → User creates `Campaign` with theme/message/channels → Track execution status
+  - From Hot Topics or action panel → POST `/api/campaigns` → DB persists campaign → Dashboard lists recent campaigns
 
-## 4. API Endpoints (Planned)
+## 4. API Endpoints (Implemented)
 
-- GET `/api/stats` — Dashboard statistics (AggregatedStats)
 - GET `/api/mentions` — Filtered list of mentions (AnalyzedItem subset)
+  - Query: `entity` (required for DB fast path), `sentiment`, `category`, `days`, `limit`, `use_db` (boolean)
+  - Cache: cached by parameters; invalidated on reply/status mutations
 - GET `/api/mentions/{id}` — Single mention detail
-- POST `/api/respond/{id}` — Generate/post response draft and/or publish
-- POST `/api/campaigns` — Create campaign from mentions
+- POST `/api/mentions/{id}/reply` — Create a reply and set `response_status=sent`
+- PATCH `/api/mentions/{id}/status` — Update `response_status` and/or `actionable`
+- GET `/api/mentions/{id}/replies` — List replies for a mention
+- GET `/api/campaigns` — List campaigns
+- POST `/api/campaigns` — Create a campaign
+- POST `/api/seed/realize` — Seed a demo Realize mention
 
 │ │ ├── themes.py # Theme extraction
 │ │ └── trends.py # Time-based analysis
@@ -124,7 +129,7 @@ Serialization: use `model_dump(mode="json")` for writing outputs.
 │ │ ├── init.py
 │ │ ├── logger.py
 │ │ └── config.py
-│ └── main.py # CLI entry point
+  │ └── main.py # CLI entry point (legacy batch)
 ├── tests/
 │ ├── init.py
 │ ├── test_collectors.py
@@ -215,7 +220,7 @@ class Config:
         }
     }
 
-### 2.3 Analyzed Item Model
+### 2.3 Analyzed Item Model (API shape reference)
 
 class AnalyzedItem(BaseModel):
 """
@@ -314,7 +319,7 @@ class Config:
         }
     }
 
-### 2.6 Aggregated Results Model
+### 2.6 Aggregated Results Model (planned)
 
 class AggregatedResults(BaseModel):
 """Final aggregated insights for an entity"""
@@ -369,7 +374,11 @@ class Config:
 
 ---
 
-## 3. API Specifications
+## 5. Additional Notes
+
+- DB fast-path: Use `use_db=true` and an explicit `entity` on GET `/api/mentions` to bypass collectors/LLM during tests.
+- Cache invalidation: After POST reply / PATCH status, mentions cache is cleared to serve fresh data.
+- Integration test: `tests/test_integration_e2e.py` seeds data, exercises replies/campaigns, and verifies persistence across a simulated reload.
 
 ### 3.1 Reddit Collector (`collectors/reddit.py`)
 
