@@ -7,6 +7,8 @@ from api.database import db
 from src.collectors.google_search import GoogleSearchCollector
 from src.analyzers.llm_analyzer import LLMAnalyzer
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
+from datetime import datetime
 
 router = APIRouter(prefix="/api", tags=["mentions"])
 
@@ -164,3 +166,44 @@ async def get_mention(item_id: str, days: int = config.DEFAULT_DAYS, entity: str
                 assigned_to=a.assigned_to,
             )
     raise HTTPException(status_code=404, detail="Mention not found")
+
+
+# --- Replies & Status ---
+class ReplyIn(BaseModel):
+    by: str
+    content: str
+
+@router.post("/mentions/{item_id}/reply")
+async def create_reply(item_id: str, payload: ReplyIn):
+    await rate_limit()
+    rid = f"r-{int(datetime.utcnow().timestamp()*1000)}"
+    reply = {
+        "id": rid,
+        "mention_id": item_id,
+        "by": payload.by,
+        "content": payload.content,
+        "created_at": datetime.utcnow().isoformat(),
+        "resolved": True,
+    }
+    await run_in_threadpool(db.save_reply, reply)
+    await run_in_threadpool(db.update_mention_status, item_id, response_status="sent")
+    # Invalidate mentions cache entries (entity-agnostic)
+    cache.clear_where(lambda k: isinstance(k, tuple) and len(k) > 0 and k[0] == "mentions")
+    return {"status": "ok", "reply": reply}
+
+class StatusIn(BaseModel):
+    response_status: Optional[str] = None
+    actionable: Optional[bool] = None
+
+@router.patch("/mentions/{item_id}/status")
+async def update_status(item_id: str, payload: StatusIn):
+    await rate_limit()
+    await run_in_threadpool(db.update_mention_status, item_id, response_status=payload.response_status, actionable=payload.actionable)
+    cache.clear_where(lambda k: isinstance(k, tuple) and len(k) > 0 and k[0] == "mentions")
+    return {"status": "ok"}
+
+@router.get("/mentions/{item_id}/replies")
+async def list_replies(item_id: str):
+    await rate_limit()
+    rows = await run_in_threadpool(db.list_replies_for_item, item_id)
+    return {"replies": rows}

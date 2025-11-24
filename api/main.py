@@ -2,6 +2,7 @@ from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import stats as stats_routes
 from api.routes import mentions as mentions_routes
+from api.routes import campaigns as campaigns_routes
 from api.models.responses import HealthResponse, CollectRequest, CollectResponse
 from api import config
 from api.dependencies import rate_limit
@@ -25,6 +26,7 @@ app.add_middleware(
 
 app.include_router(stats_routes.router)
 app.include_router(mentions_routes.router)
+app.include_router(campaigns_routes.router)
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health():
@@ -95,3 +97,28 @@ async def clear_database(entity: str | None = None):
             conn.execute("DELETE FROM analyzed_items")
         conn.commit()
     return {"status": "database cleared", "entity": entity}
+
+@app.post("/api/seed/realize")
+async def seed_realize():
+    """Seed a single 'Realize' mention for end-to-end validation."""
+    from datetime import datetime
+    item = type("AI", (), {})()
+    item.id = f"realize_seed"
+    item.text = "Realize platform onboarding experience was smooth and helpful."
+    item.url = "https://example.com/realize-seed"
+    item.platform = "google_search"
+    item.author = "demo"
+    item.sentiment = "positive"
+    item.sentiment_score = 0.6
+    item.rating = None
+    item.topics = ["onboarding"]
+    item.category = "review"
+    item.key_insight = "Positive onboarding feedback"
+    item.summary = "Smooth onboarding experience"
+    item.confidence = 0.9
+    item.actionable = False
+    item.response_status = "ignored"
+    item.response_draft = None
+    item.timestamp = datetime.utcnow()
+    await run_in_threadpool(db.save_items, [item], "Realize")
+    return {"status": "ok", "id": item.id}

@@ -1,111 +1,220 @@
-# Social Pulse
+# Social Pulse (SentimentPulse)
 
-AI-powered social listening agent that collects public web mentions and performs field-level sentiment analysis.
+Real-time dashboard for collecting, analyzing, and responding to public sentiment using AI and manual workflows.
 
-This repository is a working prototype designed for a take-home assignment. It demonstrates clean modular architecture, reliable LLM integration, and actionable outputs without production overhead.
+This prototype implements a full loop: collect public mentions, analyze with an LLM, aggregate stats, and take actions from the dashboard while persisting campaigns and replies in a SQLite DB. It currently supports the Taboola and Realize entities.
 
-## Features
-- 🔍 Collects public web content via Google Search (SerpAPI)
-- 🧠 Field-level sentiment analysis using Google Gemini 2.5 Flash
-- 📊 Simple aggregation and Markdown report output
-- 🧪 Pydantic data models with type hints
-- 🛠️ CLI pipeline for end-to-end execution
+## Project Overview
+- Dynamic statistics are computed live from backend mentions.
+- Campaigns can be created from Hot Topics and are persisted (list/create endpoints).
+- Reply flows support AI-simulated and manual replies; replies are stored and associated with mentions.
+- Both replies and campaigns survive backend restarts (SQLite persistence).
+- Entity filtering supports Taboola and Realize.
+- Timestamps displayed in the UI are the true backend timestamps.
 
-## Architecture Overview
-High-level flow: Data Source → Collector → Analyzer → Report
+## Architecture Diagram
 
-- Collector: `GoogleSearchCollector` queries SerpAPI and normalizes results to `RawItem`
-- Analyzer: `SentimentAnalyzer` (Gemini) returns `AnalyzedItem` with field-level sentiments
-- Report: Markdown summary with overall and per-field counts
+```
+┌─────────────┐   ┌───────────┐   ┌──────────┐   ┌────────────┐
+│   Collector │ → │  Analyzer │ → │Aggregator│ → │  Dashboard │
+│  (Search)   │   │   (LLM)   │   │ (Stats)  │   │    (UI)    │
+└─────────────┘   └───────────┘   └──────────┘   └───────┬─────┘
+                                                        │
+                                                        ▼
+                                                 ┌──────────────┐
+                                                 │ Action Agent │
+                                                 │ (Responder)  │
+                                                 └─────┬────────┘
+                                                       │
+    ┌──────────────┬───────────────────────┬────────┴──────────────┐
+    ▼              ▼                       ▼                       ▼
+[Reply (AI)]   [Reply (Manual)]   [Create/Track Campaign]   [Mark as Handled]
 
-See also:
-- spec.md — technical specification and data models (updated with current state)
-- AGENTS.md — architecture and planning (updated snapshot and decisions)
+                                        │
+                                        ▼
+                    ┌─────────────────────────────┐
+                    │       Tracking Panel        │
+                    │  - Campaigns (history)      │
+                    │  - Replies (AI/manual, log) │
+                    └─────────────────────────────┘
+```
 
-## Requirements
-- Python 3.10+
-- SerpAPI account and API key
-- Google Gemini API key
- - Optional: pydantic-ai (for future Agent wiring)
+## Feature List (Implemented)
+- Dynamic response statistics from live mentions
+- Persistent campaign creation and management (endpoints for save/list)
+- Reply support (manual and AI simulation), tracked in UI and DB per mention
+- Tracking of replied mentions and opened campaigns
+- Entity filtering for Taboola and Realize
+- Timestamps for all mentions come from backend data
+- Data persists after backend reloads (SQLite)
 
-## Installation
+## Sample UX Block (Pseudo-screenshot)
+
+```
+Latest Mentions
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Source  Entity   Sentiment  Author   Date               Actions            │
+├────────────────────────────────────────────────────────────────────────────┤
+│ Reddit  Taboola  Negative   u/alex   2025-11-24 10:15  [Reply] [Campaign] │
+│  “Taboola widgets slow my page down. Any settings to tune this?”            │
+│  Topics: performance, user_experience | Insight: Perf complaints            │
+│  Summary: Performance issues reported on widget load.                       │
+├────────────────────────────────────────────────────────────────────────────┤
+│ Web     Realize  Positive   blog.com 2025-11-23 17:12  [Reply] [Handled]  │
+│  “Realize onboarding was smooth; docs were clear.”                          │
+│  Topics: onboarding | Insight: Positive onboarding feedback                 │
+│  Summary: Smooth onboarding experience.                                     │
+└────────────────────────────────────────────────────────────────────────────┘
+
+Action Panel
+- Complaints | Questions | Reviews | Praises
+- Replies Sent: 4   Active Campaigns: 2   Pending: 6
+
+Recent AI Campaigns
+- “Ad Intrusiveness” • 2025-11-24 09:40 • AI proposal initiated (3 mentions)
+```
+
+## Quick Setup
+
+1) Backend (FastAPI)
+- Requirements: Python 3.10+
+- Create `.env` in project root:
+  - `SERPAPI_KEY=...`
+  - `GOOGLE_API_KEY=...` (Gemini)
+- Install and run:
 ```bash
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000
 ```
 
-Optional (Agent wiring experiments):
+2) Frontend (React + TS)
+- From `src/ui/frontend`:
 ```bash
-pip install pydantic-ai
+npm install
+npm start
 ```
+Default URLs:
+- Backend: http://localhost:8000
+- Frontend: http://localhost:3000
 
-## Configuration
-Create a `.env` file in the project root with:
+3) Seed Realize (optional)
+- Create a persistent Realize mention:
 ```bash
-SERPAPI_KEY=your_serpapi_key
-GOOGLE_API_KEY=your_gemini_key
+curl -X POST http://localhost:8000/api/seed/realize
 ```
+- In the UI, set Entity filter to “Realize” to view it.
 
-Optional environment variables:
-- `LOG_LEVEL` (DEBUG, INFO, WARNING, ERROR, CRITICAL) – default: INFO
- - If wiring pydantic-ai Agent later: set provider keys accordingly (e.g., `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
+4) Test Campaigns
+- From Hot Topics, click “Start Campaign” → a campaign is created (POST /api/campaigns) and appears in “Recent AI Campaigns”.
 
-## Usage
-Run from the project root and use module execution so Python recognizes the `src` package.
+5) Test Replies
+- Click “Reply” on a mention.
+- Choose “Send AI Reply (Demo)” or write a Manual Reply.
+- Reply persists (POST /api/mentions/{id}/reply), mention status becomes `sent`, and stats update.
 
-- End-to-end pipeline:
+## API Endpoints Used
+
+Mentions
+- GET `/api/mentions` — list analyzed mentions (filters: entity, sentiment, category, days, limit)
+- GET `/api/mentions/{id}` — get a single mention
+- POST `/api/mentions/{id}/reply` — create a reply and mark mention `response_status=sent`
+- PATCH `/api/mentions/{id}/status` — update `response_status` and/or `actionable`
+- GET `/api/mentions/{id}/replies` — list replies for a mention
+
+Campaigns
+- GET `/api/campaigns` — list campaigns (persisted)
+- POST `/api/campaigns` — create a campaign (persisted)
+
+Utility
+- POST `/api/seed/realize` — seed one Realize mention for demo
+
+## Design Notes
+- What’s persistent in DB: mentions (analyzed items), replies, campaigns.
+- What’s demo-only: AI reply text is simulated from the UI; campaign “proposal” copy is generated in-UI but only the campaign record is persisted.
+- Out of scope: email sending, external posting to Reddit/Twitter/LinkedIn.
+- Entities supported: Taboola and Realize.
+
+## Testing Instructions
+- Persistence: restart backend and refresh UI → campaigns and replies remain.
+- Campaign tracking: create multiple campaigns and verify they appear in Recent AI Campaigns after reload.
+- Reply history: reply to a mention; hit GET `/api/mentions/{id}/replies` to verify DB rows; UI stats (Replies Sent) should increase.
+- Entity filtering: filter by Taboola or Realize and verify listings and stats update.
+- Timestamps: ensure UI date columns match backend `timestamp` values (no fallback to current time).
+
+## How to run integration tests
+
+- Requirements: install dev deps and pytest in your venv.
 ```bash
-python -m src.main --all --limit 30 --analyze-limit 10
+python -m pip install -r requirements.txt
+python -m pip install pytest
 ```
 
-- Only collect:
+- Run the end-to-end test with FastAPI TestClient (no external services required):
 ```bash
-python -m src.main --collect --limit 30
+pytest -q tests/test_integration_e2e.py
 ```
 
-- Only analyze (uses outputs/items.json if not provided in-memory):
-```bash
-python -m src.main --analyze --analyze-limit 10
+What the test does:
+- Starts with a fresh temporary SQLite DB.
+- Optionally seeds one Realize mention via `POST /api/seed/realize`.
+- Seeds a Taboola mention directly (bypasses collectors/LLM).
+- Fetches mentions via DB fast-path and validates:
+  - Entities: Taboola and Realize present (checks `entity_mentioned`).
+  - Timestamps are ISO-parseable.
+- Creates two replies (AI + manual) using `POST /api/mentions/{id}/reply` and verifies:
+  - `response_status` becomes `sent` on re-fetch (DB fast-path).
+  - `GET /api/mentions/{id}/replies` returns the persisted replies.
+- Creates a campaign via `POST /api/campaigns` and confirms it appears in `GET /api/campaigns`.
+- Validates entity filtering for Taboola and Realize.
+- Simulates a reload (new TestClient) and confirms campaigns and statuses persist.
+
+Expected output ends with a single test PASS, e.g.:
+```
+1 passed in 2.3s
 ```
 
-- Only report (uses outputs/analyzed.json if not provided in-memory):
-```bash
-python -m src.main --report
+### Troubleshooting integration tests
+- If a re-fetch returns stale data, ensure the test uses `entity=<Entity>` and `use_db=true` on mentions GET.
+- Avoid collector/LLM during tests; the DB fast-path is deterministic and uses seeded rows.
+- You can lower cache TTL via env `CACHE_TTL_SECONDS=1` during tests if needed.
+- If you see 429s in logs, you are hitting the collector path; switch to `use_db=true`.
+
+## Example API Response for GET /api/mentions
+
+```json
+{
+  "id": "google_592436940456322799",
+  "text": "Taboola Reviews | Glassdoor\n90% of Taboola employees would recommend working there to a friend based on Glassdoor reviews. Employees also rated Taboola 4.3 out of 5 for work life balance, ...",
+  "url": "https://www.glassdoor.co.in/Reviews/Taboola-Reviews-E386708.htm",
+  "timestamp": "2025-11-24T13:30:16.946939",
+  "platform": "google_search",
+  "entity_mentioned": [
+    "Taboola"
+  ],
+  "author": "glassdoor.co.in",
+  "sentiment": "positive",
+  "sentiment_score": 0.85,
+  "rating": 4,
+  "topics": [
+    "employee_experience",
+    "work_life_balance"
+  ],
+  "category": "review",
+  "key_insight": "Taboola employees highly recommend working there and rate work life balance positively.",
+  "summary": "Positive employee feedback highlights high recommendation and work-life balance.",
+  "confidence": 0.98,
+  "actionable": false,
+  "response_status": "sent",
+  "response_draft": null,
+  "assigned_to": null
+}
 ```
 
-## Outputs
-- `outputs/items.json` — raw collected `RawItem` list
-- `outputs/analyzed.json` — analyzed `AnalyzedItem` list
-- `outputs/report.md` — human-readable summary
+This response shows a typical mention item including fields such as `entity_mentioned` (an array of entities mentioned in the text), sentiment, timestamps, and `response_status` reflecting the current reply state.
 
-## Troubleshooting
-- ImportError: No module named `src`
-  - Always run with `python -m src.main` from the project root.
-- Empty or partial results
-  - Ensure `SERPAPI_KEY` is valid and not rate-limited.
-- Analyzer errors
-  - Ensure `GOOGLE_API_KEY` is set. The analyzer now validates LLM JSON against a strict Pydantic schema (`AnalysisResult`) and retries once with an explicit schema reminder on invalid output. API remains stable.
-
-## Provider Options (Analyzer)
-
-- Default: Gemini via `google-generativeai` (current, cost-effective, good JSON adherence)
-- Optional (future): pydantic-ai Agent using
-  - OpenAI (requires `OPENAI_API_KEY`), or
-  - Anthropic (requires `ANTHROPIC_API_KEY`)
-
-The validation layer keeps the public API unchanged. If you wire the Agent, prefer a try-Agent-then-fallback-to-Gemini pattern.
-
-## Recommended Tests (added)
-
-- Analyzer retry path: first attempt returns invalid JSON; second returns valid schema → expect success.
-- Agent fallback (if wired): simulate Agent failure then verify Gemini path produces a valid `AnalyzedItem`.
-
-## Contributing
-This is a focused prototype. Feel free to open issues or PRs that:
-- Improve reliability (rate-limit handling, retries)
-- Add new collectors (Reddit via PRAW, LinkedIn scraping)
-- Introduce a dedicated aggregation module and a simple UI
+## References
+- spec.md — technical specification and data models
+- AGENTS.md — agent architecture and decisions
 
 ## License
 MIT

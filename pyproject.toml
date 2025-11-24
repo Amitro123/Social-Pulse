@@ -2,7 +2,7 @@
 name = "social-pulse"
 version = "0.1.0"
 description = "Social sentiment analysis tool"
-authors = ["Your Name <you@example.com>"]
+authors = ["AmitRosen <amitrosen4@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"

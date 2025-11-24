@@ -27,6 +27,14 @@ class TTLCache:
     def set(self, key: Hashable, value: Any):
         self.store[key] = CacheEntry(value=value, expires_at=time.time() + self.ttl)
 
+    def clear_where(self, predicate):
+        to_delete = [k for k in self.store.keys() if predicate(k)]
+        for k in to_delete:
+            self.store.pop(k, None)
+
+    def clear_all(self):
+        self.store.clear()
+
 cache = TTLCache(config.CACHE_TTL_SECONDS)
 
 # Simple async rate limiter (token every 1/QPS seconds)

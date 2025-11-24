@@ -43,3 +43,7 @@ yarn-error.log
 # Outputs
 outputs/*
 !outputs/.gitkeep
+
+# SQLite DB
+social_pulse.db
+*.db

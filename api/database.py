@@ -65,6 +65,35 @@ class Database:
                 """
             )
 
+            # Campaigns table (simple)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS campaigns (
+                    id TEXT PRIMARY KEY,
+                    topic TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    summary TEXT,
+                    sentiment TEXT,
+                    trigger_count INTEGER
+                )
+                """
+            )
+
+            # Replies table (per mention)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS replies (
+                    id TEXT PRIMARY KEY,
+                    mention_id TEXT NOT NULL,
+                    by TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    resolved INTEGER DEFAULT 1,
+                    FOREIGN KEY (mention_id) REFERENCES analyzed_items(id)
+                )
+                """
+            )
+
             conn.commit()
 
     def save_items(self, items: Iterable[Any], entity: str):
@@ -167,6 +196,86 @@ class Database:
 
             row = cursor.fetchone()
             return dict(row) if row else {}
+
+    # --- Campaign persistence ---
+    def save_campaign(self, campaign: Dict[str, Any]):
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO campaigns (id, topic, created_at, summary, sentiment, trigger_count)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    campaign.get("id"),
+                    campaign.get("topic"),
+                    campaign.get("created_at") or datetime.utcnow().isoformat(),
+                    campaign.get("summary"),
+                    campaign.get("sentiment"),
+                    campaign.get("trigger_count"),
+                ),
+            )
+            conn.commit()
+
+    def list_campaigns(self, limit: int = 20) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM campaigns ORDER BY datetime(created_at) DESC LIMIT ?
+                """,
+                (limit,),
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    # --- Replies persistence ---
+    def save_reply(self, reply: Dict[str, Any]):
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO replies (id, mention_id, by, content, created_at, resolved)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    reply.get("id"),
+                    reply.get("mention_id"),
+                    reply.get("by"),
+                    reply.get("content"),
+                    reply.get("created_at") or datetime.utcnow().isoformat(),
+                    1 if reply.get("resolved", True) else 0,
+                ),
+            )
+            conn.commit()
+
+    def list_replies_for_item(self, mention_id: str) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            cursor = conn.execute(
+                """
+                SELECT * FROM replies WHERE mention_id = ? ORDER BY datetime(created_at) DESC
+                """,
+                (mention_id,),
+            )
+            rows = [dict(r) for r in cursor.fetchall()]
+            for r in rows:
+                r["resolved"] = bool(r.get("resolved", 0))
+            return rows
+
+    def update_mention_status(self, mention_id: str, *, response_status: Optional[str] = None, actionable: Optional[bool] = None):
+        with self.get_connection() as conn:
+            if response_status is not None and actionable is not None:
+                conn.execute(
+                    "UPDATE analyzed_items SET response_status = ?, actionable = ? WHERE id = ?",
+                    (response_status, 1 if actionable else 0, mention_id),
+                )
+            elif response_status is not None:
+                conn.execute(
+                    "UPDATE analyzed_items SET response_status = ? WHERE id = ?",
+                    (response_status, mention_id),
+                )
+            elif actionable is not None:
+                conn.execute(
+                    "UPDATE analyzed_items SET actionable = ? WHERE id = ?",
+                    (1 if actionable else 0, mention_id),
+                )
+            conn.commit()
 
 
 # Global instance
